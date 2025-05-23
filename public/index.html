@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Log Stream</title>
+    <style>
+        body { font-family: monospace; margin: 20px; background-color: #f4f4f4; color: #333; }
+        #logContainer { 
+            background-color: #fff; 
+            border: 1px solid #ddd; 
+            padding: 15px; 
+            height: 80vh; 
+            overflow-y: auto; 
+            white-space: pre-wrap; /* So that newlines and spaces are preserved */
+            word-wrap: break-word; /* So that long strings wrap */
+            font-size: 0.9em;
+        }
+        .log-entry {
+            border-bottom: 1px solid #eee;
+            padding: 5px 0;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .timestamp {
+            color: #888;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Live Log Stream</h1>
+    <div id="logContainer">
+        <div>Waiting for logs...</div>
+    </div>
+
+    <script>
+        const logContainer = document.getElementById('logContainer');
+        let firstMessage = true;
+
+        const evtSource = new EventSource("/events");
+
+        evtSource.onopen = function() {
+            console.log("SSE connection opened.");
+            if (firstMessage) {
+                logContainer.innerHTML = ''; // Clear "Waiting for logs..."
+                firstMessage = false;
+            }
+            const entryDiv = document.createElement('div');
+            entryDiv.className = 'log-entry';
+            entryDiv.innerHTML = `<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong>SSE Connection Opened</strong>`;
+            logContainer.appendChild(entryDiv);
+            logContainer.scrollTop = logContainer.scrollHeight; 
+        };
+
+        evtSource.onmessage = function(event) {
+            if (firstMessage) {
+                logContainer.innerHTML = ''; // Clear "Waiting for logs..."
+                firstMessage = false;
+            }
+            const data = JSON.parse(event.data);
+            const entryDiv = document.createElement('div');
+            entryDiv.className = 'log-entry';
+
+            if (data.type === 'new_log') {
+                const timestamp = new Date(data.timestamp).toLocaleTimeString();
+                entryDiv.innerHTML = `<span class="timestamp">${timestamp}</span>${escapeHtml(data.content)}`;
+            } else if (data.message === "SSE Connection Established") {
+                // Already handled by onopen, or you can log it if you prefer
+                // entryDiv.innerHTML = `<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong>${escapeHtml(data.message)}</strong>`;
+                return; // Don't add a duplicate entry
+            } else {
+                entryDiv.textContent = escapeHtml(JSON.stringify(data));
+            }
+            
+            logContainer.appendChild(entryDiv);
+            logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll to the bottom
+        };
+
+        evtSource.onerror = function(err) {
+            console.error("EventSource failed:", err);
+            const entryDiv = document.createElement('div');
+            entryDiv.className = 'log-entry';
+            entryDiv.style.color = 'red';
+            entryDiv.innerHTML = `<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong>Error connecting to event stream. Retrying...</strong>`;
+            logContainer.appendChild(entryDiv);
+            logContainer.scrollTop = logContainer.scrollHeight; 
+            // evtSource.close(); // Optionally close and try to re-establish
+        };
+
+        function escapeHtml(unsafe) {
+            return unsafe
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html> 
