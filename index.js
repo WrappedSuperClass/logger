@@ -9,8 +9,8 @@ app.use(express.json());
 // Enable All CORS Requests
 app.use(cors());
 
-// Array to store connected SSE clients
 let clients = [];
+let logHistory = []; // In-memory store for logs
 
 // Endpoint for Server-Sent Events
 app.get('/events', (req, res) => {
@@ -27,8 +27,13 @@ app.get('/events', (req, res) => {
   clients.push(newClient);
   console.log(`${clientId} Connection opened`);
 
-  // Send an initial event to confirm connection (optional)
-  res.write(`data: ${JSON.stringify({ message: "SSE Connection Established" })}\n\n`);
+  // Send an initial connection confirmation message
+  res.write(`data: ${JSON.stringify({ type: 'connection_established', message: "SSE Connection Established" })}\n\n`);
+  
+  // Send all existing logs to the new client
+  logHistory.forEach(log => {
+    res.write(`data: ${JSON.stringify(log)}\n\n`);
+  });
 
   req.on('close', () => {
     clients = clients.filter(client => client.id !== clientId);
@@ -37,8 +42,8 @@ app.get('/events', (req, res) => {
 });
 
 // Function to send message to all connected clients
-function sendEventsToAll(newMessage) {
-  clients.forEach(client => client.res.write(`data: ${JSON.stringify(newMessage)}\n\n`))
+function sendEventToAllClients(eventData) {
+  clients.forEach(client => client.res.write(`data: ${JSON.stringify(eventData)}\n\n`));
 }
 
 app.post("/log", (req, res) => {
@@ -51,10 +56,24 @@ app.post("/log", (req, res) => {
   
   console.log("Received message:", message);
   
-  // Send the new message to all connected SSE clients
-  sendEventsToAll({ type: 'new_log', content: message, timestamp: new Date().toISOString() });
+  const newLogEntry = { 
+    type: 'new_log', 
+    content: message, 
+    timestamp: new Date().toISOString() 
+  };
+  
+  logHistory.push(newLogEntry); // Store the log
+  sendEventToAllClients(newLogEntry); // Send to all connected SSE clients
   
   res.status(200).json({ success: true, message: "Message logged successfully" });
+});
+
+// New endpoint to clear logs
+app.delete("/logs", (req, res) => {
+  logHistory = []; // Clear the in-memory log store
+  console.log("All logs cleared.");
+  sendEventToAllClients({ type: 'logs_cleared', message: "All logs have been cleared." });
+  res.status(200).json({ success: true, message: "Logs cleared successfully" });
 });
 
 app.get("/", (req, res) => {

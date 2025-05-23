@@ -6,6 +6,16 @@
     <title>Live Log Stream</title>
     <style>
         body { font-family: monospace; margin: 20px; background-color: #f4f4f4; color: #333; }
+        #controls { margin-bottom: 15px; }
+        #clearLogsBtn { 
+            padding: 8px 15px; 
+            background-color: #d9534f; 
+            color: white; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+        }
+        #clearLogsBtn:hover { background-color: #c9302c; }
         #logContainer { 
             background-color: #fff; 
             border: 1px solid #ddd; 
@@ -31,62 +41,90 @@
 </head>
 <body>
     <h1>Live Log Stream</h1>
+    <div id="controls">
+        <button id="clearLogsBtn">Clear All Logs</button>
+    </div>
     <div id="logContainer">
         <div>Waiting for logs...</div>
     </div>
 
     <script>
         const logContainer = document.getElementById('logContainer');
-        let firstMessage = true;
+        const clearLogsBtn = document.getElementById('clearLogsBtn');
+        let initialLogsLoaded = false; // To prevent clearing "Waiting for logs..." prematurely
 
         const evtSource = new EventSource("/events");
 
-        evtSource.onopen = function() {
-            console.log("SSE connection opened.");
-            if (firstMessage) {
-                logContainer.innerHTML = ''; // Clear "Waiting for logs..."
-                firstMessage = false;
+        function addLogEntry(htmlContent, isSystemMessage = false) {
+            if (!initialLogsLoaded && !isSystemMessage) {
+                logContainer.innerHTML = ''; // Clear "Waiting for logs..." or initial connection messages
+                initialLogsLoaded = true;
+            } else if (!initialLogsLoaded && isSystemMessage && logContainer.firstChild && logContainer.firstChild.textContent === "Waiting for logs...") {
+                 logContainer.innerHTML = ''; // Clear "Waiting for logs..."
+                 initialLogsLoaded = true; // System messages also indicate initial load
             }
+
+
             const entryDiv = document.createElement('div');
             entryDiv.className = 'log-entry';
-            entryDiv.innerHTML = `<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong>SSE Connection Opened</strong>`;
+            entryDiv.innerHTML = htmlContent;
             logContainer.appendChild(entryDiv);
-            logContainer.scrollTop = logContainer.scrollHeight; 
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        clearLogsBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/logs', { method: 'DELETE' });
+                const result = await response.json();
+                if (response.ok) {
+                    console.log('Logs cleared successfully:', result.message);
+                    // The SSE 'logs_cleared' event will handle clearing the UI
+                } else {
+                    console.error('Failed to clear logs:', result.message);
+                    addLogEntry(`<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong style="color: red;">Error clearing logs: ${escapeHtml(result.message)}</strong>`, true);
+                }
+            } catch (error) {
+                console.error('Error sending clear logs request:', error);
+                addLogEntry(`<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong style="color: red;">Error clearing logs. Check console.</strong>`, true);
+            }
+        });
+
+        evtSource.onopen = function() {
+            console.log("SSE connection opened.");
+            // Don't clear "Waiting for logs..." here, wait for first actual log or explicit clear
+            addLogEntry(`<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong>SSE Connection Opened</strong>`, true);
         };
 
         evtSource.onmessage = function(event) {
-            if (firstMessage) {
-                logContainer.innerHTML = ''; // Clear "Waiting for logs..."
-                firstMessage = false;
-            }
             const data = JSON.parse(event.data);
-            const entryDiv = document.createElement('div');
-            entryDiv.className = 'log-entry';
+            let messageHtml = '';
 
             if (data.type === 'new_log') {
                 const timestamp = new Date(data.timestamp).toLocaleTimeString();
-                entryDiv.innerHTML = `<span class="timestamp">${timestamp}</span>${escapeHtml(data.content)}`;
-            } else if (data.message === "SSE Connection Established") {
-                // Already handled by onopen, or you can log it if you prefer
-                // entryDiv.innerHTML = `<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong>${escapeHtml(data.message)}</strong>`;
-                return; // Don't add a duplicate entry
+                messageHtml = `<span class="timestamp">${timestamp}</span>${escapeHtml(data.content)}`;
+                addLogEntry(messageHtml);
+            } else if (data.type === 'connection_established') {
+                // This is the server confirming connection, useful for initial setup.
+                // Log history will follow if any.
+                // The onopen handler already logs a similar message.
+                console.log("Server confirmed SSE connection:", data.message);
+                 // We display this message explicitly to confirm the server responded.
+                addLogEntry(`<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong>${escapeHtml(data.message)}</strong>`, true);
+            } else if (data.type === 'logs_cleared') {
+                console.log('Received logs_cleared event. Clearing UI.');
+                logContainer.innerHTML = ''; // Clear all log entries from the display
+                initialLogsLoaded = true; // Reset, as the container is now empty
+                addLogEntry(`<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong>${escapeHtml(data.message)}</strong>`, true);
             } else {
-                entryDiv.textContent = escapeHtml(JSON.stringify(data));
+                // Generic handler for other messages, if any
+                messageHtml = `<span class="timestamp">${new Date().toLocaleTimeString()}</span>${escapeHtml(JSON.stringify(data))}`;
+                addLogEntry(messageHtml);
             }
-            
-            logContainer.appendChild(entryDiv);
-            logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll to the bottom
         };
 
         evtSource.onerror = function(err) {
             console.error("EventSource failed:", err);
-            const entryDiv = document.createElement('div');
-            entryDiv.className = 'log-entry';
-            entryDiv.style.color = 'red';
-            entryDiv.innerHTML = `<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong>Error connecting to event stream. Retrying...</strong>`;
-            logContainer.appendChild(entryDiv);
-            logContainer.scrollTop = logContainer.scrollHeight; 
-            // evtSource.close(); // Optionally close and try to re-establish
+            addLogEntry(`<span class="timestamp">${new Date().toLocaleTimeString()}</span><strong style="color: red;">Error connecting to event stream. Retrying...</strong>`, true);
         };
 
         function escapeHtml(unsafe) {
