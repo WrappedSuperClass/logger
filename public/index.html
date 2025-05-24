@@ -37,6 +37,11 @@
             color: #888;
             margin-right: 10px;
         }
+        .ip-address {
+            color: #007bff; /* A blue color for the IP */
+            margin-right: 10px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -101,7 +106,8 @@
 
             if (data.type === 'new_log') {
                 const timestamp = new Date(data.timestamp).toLocaleTimeString();
-                messageHtml = `<span class="timestamp">${timestamp}</span>${escapeHtml(data.content)}`;
+                const ipAddress = data.ip ? escapeHtml(data.ip) : 'N/A';
+                messageHtml = `<span class="ip-address">[${ipAddress}]</span> <span class="timestamp">${timestamp}</span> ${escapeHtml(data.content)}`;
                 addLogEntry(messageHtml);
             } else if (data.type === 'connection_established') {
                 // This is the server confirming connection, useful for initial setup.
